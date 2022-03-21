@@ -1,0 +1,81 @@
+name: Demo
+on:
+  repository_dispatch:
+    types: [demo-test-command]
+
+concurrency:
+  group: ${{ github.event.client_payload.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  Performance:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Git checkout current branch
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.pull_request.head.sha }}
+
+      - name: Persist test script
+        run: |
+          cp scripts/demo.py /tmp
+
+      - name: Run demo test on current branch
+        id: current-branch-test
+        run: |
+          result="$(python /tmp/demo.py)"
+          result="${result//'%'/'%25'}"
+          result="${result//$'\n'/'%0A'}"
+          result="${result//$'\r'/'%0D'}"
+          echo "::set-output name=result::$result"
+
+      - name: Fetch and Diff PR with base branch
+        id: branch-diff
+        run: |
+          git fetch origin main ${{ github.event.client_payload.pull_request.base.sha }}
+          diff="$(git diff ${{ github.event.client_payload.pull_request.base.sha }} ${{ github.event.client_payload.pull_request.head.sha }} -- scripts/demo.py watched_file.md)"
+
+          if [ -z "$diff" ]
+          then
+                diff="\`No change detected\`"
+                echo "::set-output name=diff::$diff"
+          else
+                diff="<details>%0A<summary>Changes</summary>%0A%0A\`\`\`diff%0A${diff//'%'/'%25'}%0A\`\`\`%0A%0A</details>"
+                diff="${diff//$'\n'/'%0A'}"
+                diff="${diff//$'\r'/'%0D'}"
+                echo "::set-output name=diff::$diff"
+          fi
+
+      - name: Run demo test on base branch
+        id: base-branch-test
+        run: |
+          git checkout ${{ github.event.client_payload.pull_request.base.sha }}
+          result="$(python /tmp/demo.py)"
+          result="${result//'%'/'%25'}"
+          result="${result//$'\n'/'%0A'}"
+          result="${result//$'\r'/'%0D'}"
+          echo "::set-output name=result::$result"
+
+      - name: Calculate difference
+        id: performance-diff
+        run: |
+          diff="$(python -c 'print("%.2f" % (100*(${{ steps.current-branch-test.outputs.result }}-${{ steps.base-branch-test.outputs.result }})/${{ steps.base-branch-test.outputs.result }}))')"
+
+          echo "::set-output name=diff::$diff"
+
+      - name: Output test results
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          issue-number: ${{ github.event.client_payload.github.payload.comment.id }}
+          body: |
+
+            ### Demo test result
+            #### Base commit: ${{ github.event.client_payload.pull_request.base.sha }}
+            Run time: ${{ steps.base-branch-test.outputs.result }}
+
+            #### Current commit: ${{ github.event.client_payload.pull_request.head.sha }}
+            Run time: ${{ steps.current-branch-test.outputs.result }}
+
+            #### Change in differnce is **${{ steps.performance-diff.outputs.diff }}**%
+
+            ${{ steps.branch-diff.outputs.diff }}
