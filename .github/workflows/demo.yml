@@ -76,6 +76,6 @@ jobs:
             #### Current commit: ${{ github.event.client_payload.pull_request.head.sha }}
             Run time: ${{ steps.current-branch-test.outputs.result }}
 
-            #### Change in differnce is **${{ steps.performance-diff.outputs.diff }}**%
+            #### Change in difference is **${{ steps.performance-diff.outputs.diff }}**%
 
             ${{ steps.branch-diff.outputs.diff }}
